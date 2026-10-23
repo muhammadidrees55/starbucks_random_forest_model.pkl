@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -23,13 +24,14 @@ st.markdown("""
 # 2. Load the Best Performing Trained Model
 @st.cache_resource
 def load_model():
-    # Loading the Random Forest Model which had 83.41% accuracy
     return joblib.load('starbucks_random_forest_model.pkl')
 
 try:
     model = load_model()
+    # Extract the exact feature names the model was trained on
+    model_features = list(model.feature_names_in_)
 except Exception as e:
-    st.error("⚠️ Model file not found. Make sure 'starbucks_random_forest_model.pkl' is in the repository root.")
+    st.error("⚠️ Model file not found or failed to load. Make sure 'starbucks_random_forest_model.pkl' is in the repository root.")
     st.stop()
 
 # 3. Web App Header
@@ -56,42 +58,32 @@ caffeine = st.slider("Caffeine (mg):", min_value=0, max_value=500, value=75, ste
 
 # 5. Prediction Logic
 if st.button("🔮 Predict Coffee Price"):
-    # Create matching features dictionary for the model
+    # Create a base dictionary with user inputs
     input_data = {
-        'Calories': [float(calories)],
-        'Total Fat (g)': [float(total_fat)],
-        'Sugars (g)': [float(sugars)],
-        'Caffeine (mg)': [float(caffeine)]
+        'Calories': float(calories),
+        'Total Fat (g)': float(total_fat),
+        'Sugars (g)': float(sugars),
+        'Caffeine (mg)': float(caffeine)
     }
     
-    input_df = pd.DataFrame(input_data)
+    # Process One-Hot Encoded categories dynamic match
+    target_category_col = f"Beverage_category_{category}"
     
-    # Target columns expected by One-Hot Encoding during training
-    expected_categories = [
-        'Beverage_category_Coffee',
-        'Beverage_category_Frappuccino® Blended Coffee',
-        'Beverage_category_Frappuccino® Blended Crème',
-        'Beverage_category_Frappuccino® Light Blended Coffee',
-        'Beverage_category_Shaken Iced Beverages',
-        'Beverage_category_Smoothies',
-        'Beverage_category_Tazo® Tea Drinks'
-    ]
+    # Dynamically build the DataFrame using the exact column names from the model
+    final_input_dict = {}
+    for col in model_features:
+        if col in input_data:
+            final_input_dict[col] = [input_data[col]]
+        elif col == target_category_col:
+            final_input_dict[col] = [1]
+        else:
+            final_input_dict[col] = [0]
+            
+    # Convert to DataFrame with the perfect column sequence
+    input_df = pd.DataFrame(final_input_dict)
+    input_df = input_df[model_features]
     
-    # Initialize all category columns to 0
-    for col in expected_categories:
-        input_df[col] = 0
-        
-    # Set the selected category column to 1 (excluding the base category 'Classic Espresso Drinks')
-    target_col = f"Beverage_category_{category}"
-    if target_col in expected_categories:
-        input_df[target_col] = 1
-        
-    # Reorder columns to match exact model training shape
-    # This matches the structure of 4 base features + 7 categorical dummies
-    feature_order = ['Calories', 'Total Fat (g)', 'Sugars (g)', 'Caffeine (mg)'] + expected_categories
-    input_df = input_df[feature_order]
-    
-    # Perform prediction
+    # Perform prediction safely without index mismatch
     predicted_price = model.predict(input_df)[0]
     
     # Display Result
